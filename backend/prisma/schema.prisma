@@ -1,0 +1,309 @@
+// Renting App - Prisma Database Schema
+// Relational schema supporting full vehicle rental lifecycle
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User Model - Supports Customer, Provider, and Admin roles
+model User {
+  id                 String   @id @default(uuid())
+  phone              String   @unique
+  email              String?  @unique
+  fullName           String
+  role               String   @default("CUSTOMER") // CUSTOMER, PROVIDER, ADMIN
+  verificationStatus String   @default("UNVERIFIED") // UNVERIFIED, PENDING, VERIFIED, REJECTED
+  profilePhoto       String?
+  address            String?
+  dateOfBirth        String?
+  
+  // Reusable Customer Verification Documents
+  drivingLicenseNo   String?
+  dlExpiryDate       String?
+  dlFrontUrl         String?
+  dlBackUrl          String?
+  aadhaarNo          String?
+  aadhaarDocUrl      String?
+  verificationNote   String?
+  verifiedAt         DateTime?
+
+  isSuspended        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relationships
+  providerProfile    Provider?
+  customerBookings   Booking[]          @relation("CustomerBookings")
+  reviews            Review[]           @relation("CustomerReviews")
+  disputesInitiated  Dispute[]          @relation("UserDisputes")
+  notifications      Notification[]
+  conditionReports   ConditionReport[]  @relation("InspectorReports")
+}
+
+// Provider Profile (for Rental Agencies and Individual Owners)
+model Provider {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  providerType          String   @default("AGENCY") // AGENCY, INDIVIDUAL
+  businessName          String   // Company name or owner display name
+  businessAddress       String?
+  gstNumber             String?
+  idProofType           String?  // AADHAAR, PASSPORT, PAN
+  idProofUrl            String?
+  businessDocUrl        String?  // Trade License, Registration certificate
+  
+  onboardingType        String   @default("SELF_SERVICE") // SELF_SERVICE, ASSISTED
+  onboardingRepresentativeId String?
+  
+  status                String   @default("PENDING") // PENDING, UNDER_REVIEW, VERIFIED, REJECTED, SUSPENDED
+  rating                Float    @default(5.0)
+  totalRentals          Int      @default(0)
+  totalReviews          Int      @default(0)
+  
+  cityId                String?
+  city                  City?    @relation(fields: [cityId], references: [id])
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relationships
+  vehicles              Vehicle[]
+  bookings              Booking[] @relation("ProviderBookings")
+  reviews               Review[]  @relation("ProviderReviews")
+}
+
+// Cities & Areas
+model City {
+  id        String     @id @default(uuid())
+  name      String     @unique // e.g. "Chandigarh"
+  state     String     @default("Punjab & Haryana")
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  areas     Area[]
+  vehicles  Vehicle[]
+  providers Provider[]
+}
+
+model Area {
+  id        String    @id @default(uuid())
+  cityId    String
+  city      City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  name      String    // e.g. "Sector 17", "Sector 35", "IT Park"
+  pincode   String?
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  vehicles  Vehicle[]
+}
+
+// Vehicle Listing
+model Vehicle {
+  id                   String         @id @default(uuid())
+  providerId           String
+  provider             Provider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  
+  cityId               String
+  city                 City           @relation(fields: [cityId], references: [id])
+  areaId               String?
+  area                 Area?          @relation(fields: [areaId], references: [id])
+  
+  brand                String         // e.g. "Royal Enfield", "Honda", "TVS"
+  model                String         // e.g. "Bullet 350", "Activa 6G", "Himalayan 411"
+  variant              String?        // e.g. "Standard BS6", "Disc ABS"
+  category             String         @default("BIKE") // BIKE, SCOOTER, ELECTRIC_VEHICLE, CAR
+  modelYear            Int            @default(2023)
+  registrationNumber   String
+  description          String?
+  
+  // Pricing & Terms
+  pricePerHour         Float          @default(50.0)
+  pricePerDay          Float          // e.g. 750.0
+  pricePerWeek         Float?
+  securityDeposit      Float          // e.g. 1500.0
+  minRentalHours       Int            @default(4)
+  
+  mileageLimitKmPerDay Int            @default(150)
+  excessKmCharge       Float          @default(5.0) // Per km above limit
+  fuelPolicy           String         @default("SAME_TO_SAME") // SAME_TO_SAME, FULL_TO_FULL
+  
+  pickupAddress        String
+  pickupLatitude       Float?
+  pickupLongitude      Float?
+  
+  // Status & Approval
+  status               String         @default("AVAILABLE") // AVAILABLE, BOOKED, RESERVED, MAINTENANCE, INACTIVE
+  isApproved           Boolean        @default(true)
+  rating               Float          @default(5.0)
+  totalReviews         Int            @default(0)
+  
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  // Relationships
+  images               VehicleImage[]
+  bookings             Booking[]
+  reviews              Review[]
+}
+
+model VehicleImage {
+  id        String   @id @default(uuid())
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  imageUrl  String
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// Booking Management
+model Booking {
+  id                 String           @id @default(uuid())
+  bookingNumber      String           @unique // e.g. "RENT-2026-0001"
+  customerId         String
+  customer           User             @relation("CustomerBookings", fields: [customerId], references: [id])
+  providerId         String
+  provider           Provider         @relation("ProviderBookings", fields: [providerId], references: [id])
+  vehicleId          String
+  vehicle            Vehicle          @relation(fields: [vehicleId], references: [id])
+  
+  bookingSource      String           @default("ONLINE") // ONLINE, ONSITE
+  
+  startDate          DateTime
+  endDate            DateTime
+  totalDays          Int              @default(1)
+  totalHours         Float            @default(24.0)
+  
+  // Transparent Price Breakdown
+  rentalAmount       Float
+  securityDeposit    Float
+  platformFee        Float            @default(100.0)
+  otherCharges       Float            @default(0.0)
+  totalAmount        Float
+  
+  status             String           @default("CONFIRMED") // PENDING, CONFIRMED, ACTIVE, COMPLETED, CANCELLED, REJECTED, DISPUTED
+  paymentStatus      String           @default("SUCCESS")   // PENDING, SUCCESS, FAILED, REFUNDED
+  
+  cancellationReason String?
+  cancelledBy        String?
+  cancelledAt        DateTime?
+  
+  handoverAt         DateTime?
+  returnedAt         DateTime?
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  // Relationships
+  payment            Payment?
+  rentalAgreement    RentalAgreement?
+  conditionReports   ConditionReport[]
+  review             Review?
+  disputes           Dispute[]
+}
+
+// Payment Entity
+model Payment {
+  id            String   @id @default(uuid())
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId    String
+  amount        Float
+  paymentType   String   @default("RENTAL_AND_DEPOSIT") // RENTAL_AND_DEPOSIT, REFUND, DAMAGE_CHARGE
+  status        String   @default("SUCCESS") // PENDING, SUCCESS, FAILED, REFUNDED
+  transactionId String   @unique // e.g. "pay_sandbox_12345"
+  provider      String   @default("RAZORPAY_SANDBOX")
+  rawResponse   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Digital Rental Agreement
+model RentalAgreement {
+  id                    String    @id @default(uuid())
+  bookingId             String    @unique
+  booking               Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  agreementNumber       String    @unique
+  termsText             String
+  signedAtCustomer      DateTime?
+  signatureCustomerUrl  String?
+  digitalSignatureHash  String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+// Condition Report (Before & After Rental)
+model ConditionReport {
+  id               String   @id @default(uuid())
+  bookingId        String
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reportType       String   // BEFORE_RENTAL, AFTER_RENTAL
+  odometerReading  Float    // in km
+  fuelLevelPercent Float    // 0 to 100
+  damageNotes      String?
+  photosJson       String   @default("[]") // Array of photo URLs
+  recordedByUserId String?
+  recordedByUser   User?    @relation("InspectorReports", fields: [recordedByUserId], references: [id])
+  recordedAt       DateTime @default(now())
+}
+
+// Reviews & Ratings
+model Review {
+  id             String   @id @default(uuid())
+  bookingId      String   @unique
+  booking        Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       User     @relation("CustomerReviews", fields: [customerId], references: [id])
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
+  providerId     String
+  provider       Provider @relation("ProviderReviews", fields: [providerId], references: [id])
+  
+  vehicleRating  Float    // 1.0 to 5.0
+  providerRating Float    // 1.0 to 5.0
+  comment        String
+  isPublished    Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Disputes Management
+model Dispute {
+  id                  String    @id @default(uuid())
+  bookingId           String
+  booking             Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  initiatedByUserId   String
+  initiatedByUser     User      @relation("UserDisputes", fields: [initiatedByUserId], references: [id])
+  title               String
+  description         String
+  evidencePhotosJson  String    @default("[]")
+  claimAmount         Float     @default(0.0)
+  status              String    @default("OPEN") // OPEN, UNDER_REVIEW, RESOLVED, REJECTED, APPEALED
+  providerResponse    String?
+  resolutionNotes     String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+// In-App Notifications
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // BOOKING, VERIFICATION, PAYMENT, DISPUTE, SYSTEM
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
