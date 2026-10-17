@@ -1,4 +1,4 @@
-# Renting App — Full-Stack MVP
+# Rental
 
 > **City Vehicle Rental Marketplace**: Unifying vehicle rental discovery, side-by-side agency comparison, one-time reusable customer verification, transparent deposit pricing, and digital rental agreements.
 
